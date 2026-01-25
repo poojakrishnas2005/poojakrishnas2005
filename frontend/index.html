@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eco-Wallet</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌱 Eco-Wallet</h1>
+            <p>Track your environmental impact</p>
+        </div>
+
+        <div class="card">
+            <h2>Your Eco Score</h2>
+            <div class="eco-score-display" id="scoreDisplay">Loading...</div>
+            <button onclick="fetchEcoScore()">Refresh Score</button>
+        </div>
+
+        <div class="card">
+            <h2>Add Transaction</h2>
+            <form id="transactionForm">
+                <div class="form-group">
+                    <label for="itemName">Item Name:</label>
+                    <input type="text" id="itemName" name="itemName" required placeholder="e.g., Groceries">
+                </div>
+                <div class="form-group">
+                    <label for="amount">Amount (₹):</label>
+                    <input type="number" id="amount" name="amount" step="0.01" required placeholder="e.g., 500">
+                </div>
+                <div class="form-group">
+                    <label for="category">Category:</label>
+                    <select id="category" name="category" required>
+                        <option value="">Select a category</option>
+                        <option value="Food">Food</option>
+                        <option value="Transport">Transport</option>
+                        <option value="Bills">Bills</option>
+                    </select>
+                </div>
+                <button type="submit" class="submit-btn">Submit</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Monthly Expenses</h2>
+            <canvas id="expensesChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Carbon Impact by Category</h2>
+            <canvas id="categoryChart"></canvas>
+        </div>
+
+        <div class="info">
+            <p>Your eco score represents your carbon footprint from transactions.</p>
+            <p>Lower scores are better for the environment! 🌍</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
