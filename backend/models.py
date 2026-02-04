@@ -11,6 +11,7 @@ class Expense(db.Model):
     amount_in_inr = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(50), nullable=False)
     carbon_impact = db.Column(db.Float, default=0.0)
+    eco_points = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def to_dict(self):
@@ -20,5 +21,6 @@ class Expense(db.Model):
             'amount_in_inr': self.amount_in_inr,
             'category': self.category,
             'carbon_impact': self.carbon_impact,
+            'eco_points': self.eco_points,
             'created_at': self.created_at.isoformat()
         }
