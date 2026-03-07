@@ -9,6 +9,8 @@ import pandas as pd
 import numpy as np
 import os
 from werkzeug.utils import secure_filename
+import traceback
+from sqlalchemy import inspect
 
 # Get the absolute path to the project root
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -39,6 +41,11 @@ db.init_app(app)
 with app.app_context():
     try:
         db.create_all()
+        # Debug: Verify database columns
+        inspector = inspect(db.engine)
+        if inspector.has_table("expense"):
+            columns = [col['name'] for col in inspector.get_columns("expense")]
+            print(f"✅ Database Check: 'expense' table columns: {columns}")
     except Exception as e:
         print(f"Error creating database tables: {e}")
 
@@ -202,6 +209,7 @@ def spending_data():
             spending_totals[category] = total
     except Exception as e:
         print(f"Error querying database for spending: {e}")
+        traceback.print_exc()
         return jsonify({"labels": [], "values": []}), 500
     
     # If no data, return empty
@@ -290,6 +298,8 @@ def upload_csv():
         impact_data = calculate_batch_impact_pandas(file)
         return jsonify(impact_data)
     except Exception as e:
+        print(f"Error in upload_csv: {e}")
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 def calculate_batch_impact_pandas(file_stream):
