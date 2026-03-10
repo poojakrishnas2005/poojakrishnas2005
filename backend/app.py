@@ -10,7 +10,7 @@ import numpy as np
 import os
 from werkzeug.utils import secure_filename
 import traceback
-from sqlalchemy import inspect
+import hashlib
 
 # Get the absolute path to the project root
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -40,6 +40,7 @@ db.init_app(app)
 # Create database tables with app context
 with app.app_context():
     try:
+        from sqlalchemy import inspect
         db.create_all()
         # Debug: Verify database columns
         inspector = inspect(db.engine)
@@ -48,6 +49,12 @@ with app.app_context():
             print(f"✅ Database Check: 'expense' table columns: {columns}")
     except Exception as e:
         print(f"Error creating database tables: {e}")
+
+def generate_tx_hash(name, amount, category, user_id):
+    """Generates a SHA-256 hash for a transaction to check for duplicates."""
+    # Ensure consistent data types for hashing
+    hash_string = f"{str(name).strip()}-{float(amount)}-{str(category).strip()}-{int(user_id)}"
+    return hashlib.sha256(hash_string.encode()).hexdigest()
 
 @app.route("/")
 def index():
@@ -236,6 +243,17 @@ def transactions():
             return jsonify({"error": "Missing required fields: itemName, amount, category"}), 400
         
         try:
+            item_name = request.form['itemName']
+            amount = float(request.form['amount'])
+            category = request.form['category']
+            user_id = session['user_id']
+
+            # Generate hash and check for duplicates
+            tx_hash = generate_tx_hash(item_name, amount, category, user_id)
+            existing_expense = Expense.query.filter_by(transaction_hash=tx_hash).first()
+            if existing_expense:
+                return jsonify({"error": "Duplicate transaction detected"}), 409
+
             # Handle file upload - proof is REQUIRED
             proof_path = None
             if 'proof' in request.files:
@@ -251,20 +269,21 @@ def transactions():
             
             # Create new expense
             new_expense = Expense(
-                item_name=request.form['itemName'],
-                amount_in_inr=float(request.form['amount']),
-                category=request.form['category'],
+                item_name=item_name,
+                amount_in_inr=amount,
+                category=category,
                 carbon_impact=float(request.form.get('carbon_impact', 0.0)),
                 eco_points=int(request.form.get('eco_points', 0)),
                 proof_path=proof_path,
-                user_id=session['user_id']
+                user_id=user_id,
+                transaction_hash=tx_hash
             )
             
             db.session.add(new_expense)
             db.session.commit()
             
             # Calculate total eco_points
-            total_eco_points = db.session.query(db.func.sum(Expense.eco_points)).scalar() or 0
+            total_eco_points = db.session.query(db.func.sum(Expense.eco_points)).filter_by(user_id=user_id).scalar() or 0
             
             return jsonify({
                 "status": "success",
@@ -295,57 +314,88 @@ def upload_csv():
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        impact_data = calculate_batch_impact_pandas(file)
+        impact_data = calculate_batch_impact_pandas(file, session['user_id'])
         return jsonify(impact_data)
     except Exception as e:
         print(f"Error in upload_csv: {e}")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-def calculate_batch_impact_pandas(file_stream):
+def calculate_batch_impact_pandas(file_stream, user_id):
     # Read CSV using Pandas
     df = pd.read_csv(file_stream)
     
     # Normalize column names to lower case for easier matching
-    df.columns = [c.lower() for c in df.columns]
+    df.columns = [c.lower().replace(' ', '_') for c in df.columns]
     
-    if 'amount' not in df.columns or 'category' not in df.columns: 
-        raise ValueError("CSV must contain 'Amount' and 'Category' columns")
+    if 'item_name' not in df.columns or 'amount' not in df.columns or 'category' not in df.columns:
+        raise ValueError("CSV must contain 'item_name', 'amount', and 'category' columns")
 
+    # Generate a hash for each row to identify duplicates
+    df['transaction_hash'] = df.apply(
+        lambda row: generate_tx_hash(row['item_name'], row['amount'], row['category'], user_id),
+        axis=1
+    )
+
+    # Find which transactions already exist in the database for this user
+    existing_hashes = {
+        res[0] for res in db.session.query(Expense.transaction_hash)
+        .filter(Expense.user_id == user_id)
+        .filter(Expense.transaction_hash.in_(df['transaction_hash'].tolist()))
+        .all()
+    }
+
+    # Filter the DataFrame to get only the new transactions
+    new_df = df[~df['transaction_hash'].isin(existing_hashes)].copy()
+
+    if new_df.empty:
+        return {
+            "total_impact": 0,
+            "eco_points": 0,
+            "message": "No new transactions to add. All entries were duplicates.",
+            "breakdown": {"labels": [], "values": []},
+            "spending_breakdown": {"labels": [], "values": []}
+        }
+
+    # --- Continue with calculations ONLY on the new_df ---
     # Load Baselines from weights.csv
     weights_path = os.path.join(PROJECT_ROOT, "weights.csv")
     baselines = {}
     if os.path.exists(weights_path):
         try:
             baseline_df = pd.read_csv(weights_path)
-            # Create a dict: {'transport': 0.9, 'food': 0.5, ...}
             baselines = dict(zip(baseline_df['category'].str.lower(), baseline_df['baseline_footprint']))
         except Exception as e:
             print(f"Error reading weights.csv: {e}")
     
-    # Define User Actual Emission Factors (The "Green" factors)
     user_factors = {"food": 0.2, "transport": 0.8, "shopping": 0.4}
     
-    # 1. Map Categories to Factors
-    df['category_lower'] = df['category'].astype(str).str.lower()
-    df['user_factor'] = df['category_lower'].map(user_factors).fillna(0.2)
-    df['baseline_factor'] = df['category_lower'].map(baselines).fillna(0.5) # Default baseline 0.5
+    new_df['category_lower'] = new_df['category'].astype(str).str.lower()
+    new_df['user_factor'] = new_df['category_lower'].map(user_factors).fillna(0.2)
+    new_df['baseline_factor'] = new_df['category_lower'].map(baselines).fillna(0.5)
 
-    # 2. Calculate Carbon Footprint: Amount * User_Factor
-    df['footprint'] = df['amount'] * df['user_factor']
+    new_df['footprint'] = new_df['amount'] * new_df['user_factor']
 
-    # 3. Calculate Eco Reward Points with anti-inflation
     DIFFICULTY_SCALAR = 0.01
-    df['baseline_emission'] = df['amount'] * df['baseline_factor']
-    # Calculate the raw carbon saving, ensuring it's not negative.
-    raw_carbon_saving = (df['baseline_emission'] - df['footprint']).clip(lower=0)
-    # Apply log to the saving itself, then scale it down to prevent point inflation.
-    df['points'] = np.log1p(raw_carbon_saving) * DIFFICULTY_SCALAR
+    new_df['baseline_emission'] = new_df['amount'] * new_df['baseline_factor']
+    raw_carbon_saving = (new_df['baseline_emission'] - new_df['footprint']).clip(lower=0)
+    new_df['points'] = np.log1p(raw_carbon_saving) * DIFFICULTY_SCALAR
 
-    total_impact = float(df['footprint'].sum())
-    total_points = float(df['points'].sum())
-    breakdown = df.groupby('category')['footprint'].sum()
-    spending = df.groupby('category')['amount'].sum()
+    # Save new transactions to the database
+    new_expenses = []
+    for _, row in new_df.iterrows():
+        new_expenses.append(Expense(
+            item_name=row['item_name'], amount_in_inr=row['amount'], category=row['category'],
+            carbon_impact=row['footprint'], eco_points=row['points'],
+            transaction_hash=row['transaction_hash'], user_id=user_id
+        ))
+    db.session.bulk_save_objects(new_expenses)
+    db.session.commit()
+
+    total_impact = float(new_df['footprint'].sum())
+    total_points = float(new_df['points'].sum())
+    breakdown = new_df.groupby('category')['footprint'].sum()
+    spending = new_df.groupby('category')['amount'].sum()
     
     return {
         "total_impact": total_impact,
@@ -361,4 +411,7 @@ def calculate_batch_impact_pandas(file_stream):
     }
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Get port from environment variable, or default to 5000 for local testing
+    port = int(os.environ.get("PORT", 5000))
+    # host='0.0.0.0' is required for cloud deployment
+    app.run(host='0.0.0.0', port=port, debug=False)
