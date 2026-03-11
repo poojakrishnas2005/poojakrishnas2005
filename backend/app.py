@@ -11,29 +11,21 @@ import os
 from werkzeug.utils import secure_filename
 import traceback
 import hashlib
-
-# Get the absolute path to the project root
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
 frontend_path = os.path.join(PROJECT_ROOT, "frontend")
 db_path = os.path.join(PROJECT_ROOT, "backend", "eco_wallet.db")
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "static", "uploads")
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
 
-# Create uploads folder if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-app = Flask(__name__, static_folder=frontend_path, static_url_path="/static")
+app = Flask(__name__, static_folder=frontend_path, static_url_path="")
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-app.secret_key = os.environ.get('SECRET_KEY', 'enterprise_eco_secret_key') # Required for session management
-
-# Configure CORS properly
-CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type", "Authorization"]}})
-
-
-# Database configuration with absolute path
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.secret_key = os.environ.get('SECRET_KEY', 'enterprise_eco_secret_key')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 # Initialize database with app
 db.init_app(app)
 
@@ -41,6 +33,7 @@ db.init_app(app)
 with app.app_context():
     try:
         from sqlalchemy import inspect
+        db.drop_all()
         db.create_all()
         # Debug: Verify database columns
         inspector = inspect(db.engine)
@@ -101,42 +94,27 @@ def eco_score():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     try:
-        # 1. Fetch all real expenses from the database
-        all_expenses = Expense.query.filter_by(user_id=session['user_id']).all()
+        user_id = session.get('user_id')
+        query_result = db.session.query(db.func.sum(Expense.carbon_impact), db.func.sum(Expense.eco_points)).filter(Expense.user_id == int(user_id)).first()
         
-        # 2. If no expenses, return default score
-        if not all_expenses:
-            return jsonify({
-                "eco_score": 100,
-                "eco_points": 0,
-                "count": 0,
-                "message": "No transactions yet. Start by adding expenses!"
-            })
+        total_impact = query_result[0] or 0.0
+        total_points = query_result[1] or 0.0
         
-        # 3. Convert database data into the format the engine needs
-        # Define emission factors
-        factors = {"transport": 0.8, "food": 0.2, "shopping": 0.4}
-        
-        transactions = []
-        for e in all_expenses:
-            cat_key = e.category.lower() if e.category else ""
-            factor = factors.get(cat_key, 0.2) # Default to 0.2 if unknown
-            transactions.append({"amount": e.amount_in_inr, "emission_factor": factor, "category": e.category})
-
-        # 4. Calculate the score based on REAL data
-        score, points = calculate_eco_score(transactions)
-
+        # The Emergency Brake:
+        if total_points > 500:
+            total_points = 0.0
+            
         return jsonify({
-            "eco_score": score,
-            "eco_points": points,
-            "count": len(transactions)
+            'eco_score': round(total_impact, 2), 
+            'eco_points': round(total_points, 2)
         })
     except Exception as e:
-        print(f"Error calculating eco score: {e}")
+        print(f"Error in eco_score: {e}")
+        traceback.print_exc()
         return jsonify({
-            "eco_score": 100,
-            "count": 0,
-            "error": str(e)
+            "eco_score": 0,
+            "eco_points": 0,
+            "error": "Failed to calculate score"
         }), 500
 
 
@@ -376,18 +354,18 @@ def calculate_batch_impact_pandas(file_stream, user_id):
 
     new_df['footprint'] = new_df['amount'] * new_df['user_factor']
 
-    DIFFICULTY_SCALAR = 0.01
+    DIFFICULTY_SCALAR = 0.0001 # Adjusted to prevent point inflation
     new_df['baseline_emission'] = new_df['amount'] * new_df['baseline_factor']
     raw_carbon_saving = (new_df['baseline_emission'] - new_df['footprint']).clip(lower=0)
-    new_df['points'] = np.log1p(raw_carbon_saving) * DIFFICULTY_SCALAR
-
+    # New points formula: scale the saving and cap it at 10 points per transaction
+    new_df['points'] = (raw_carbon_saving * 0.0001).clip(upper=1).round(2)
     # Save new transactions to the database
     new_expenses = []
     for _, row in new_df.iterrows():
         new_expenses.append(Expense(
             item_name=row['item_name'], amount_in_inr=row['amount'], category=row['category'],
             carbon_impact=row['footprint'], eco_points=row['points'],
-            transaction_hash=row['transaction_hash'], user_id=user_id
+            transaction_hash=row['transaction_hash'], user_id=int(user_id)
         ))
     db.session.bulk_save_objects(new_expenses)
     db.session.commit()
@@ -409,6 +387,17 @@ def calculate_batch_impact_pandas(file_stream, user_id):
             "values": spending.values.tolist()
         }
     }
+
+@app.route('/api/debug/reset-db')
+def reset_db():
+    """Temporary debug route to clear all expenses."""
+    try:
+        num_rows_deleted = db.session.query(Expense).delete()
+        db.session.commit()
+        return jsonify({"message": f"Success! Deleted {num_rows_deleted} rows from the Expense table."})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to reset database.", "details": str(e)}), 500
 
 if __name__ == "__main__":
     # Get port from environment variable, or default to 5000 for local testing

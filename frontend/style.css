@@ -38,27 +38,36 @@ body {
 }
 
 .card {
-    background: white;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     padding: 30px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
     margin-bottom: 20px;
 }
 
 .card h2 {
-    color: #333;
+    color: #fff;
     margin-bottom: 20px;
     text-align: center;
+}
+
+.card p {
+    color: #eee;
+    line-height: 1.6;
 }
 
 .eco-score-display {
     font-size: 4rem;
     font-weight: bold;
     text-align: center;
-    color: #667eea;
+    color: #fff;
     margin-bottom: 20px;
     padding: 20px;
-    background: #f5f5f5;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 10px;
     min-height: 100px;
     display: flex;
@@ -91,11 +100,14 @@ button:active {
 }
 
 .info {
-    background: white;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     padding: 20px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-    color: #333;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+    color: #fff;
     text-align: center;
 }
 
@@ -120,7 +132,7 @@ button:active {
     display: block;
     margin-bottom: 6px;
     font-weight: 600;
-    color: #333;
+    color: #eee;
     font-size: 0.95rem;
 }
 
@@ -129,10 +141,17 @@ button:active {
     width: 100%;
     padding: 10px;
     font-size: 1rem;
-    border: 2px solid #e0e0e0;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
     border-radius: 6px;
     font-family: inherit;
     transition: border-color 0.3s ease;
+}
+
+.form-group select option {
+    background: #5568d3;
+    color: #fff;
 }
 
 .form-group input:focus,
@@ -161,4 +180,28 @@ button:active {
 
 .submit-btn:active {
     transform: scale(0.98);
+}
+
+/* Custom File Upload */
+.file-upload-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.file-upload-wrapper input[type="file"] {
+    display: none;
+}
+
+.file-upload-label {
+    background-color: #4299e1;
+    color: white;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.file-name-display {
+    margin-left: 15px;
 }

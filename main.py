@@ -14,7 +14,7 @@ weights = {}
 with open(weights_csv, newline='') as file:
     reader = csv.DictReader(file)
     for row in reader:
-        weights[row["category"]] = float(row["weight"])
+        weights[row["category"]] = float(row["baseline_footprint"])
 
 total_score = 0
 

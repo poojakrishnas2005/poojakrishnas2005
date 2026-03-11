@@ -1,4 +1,4 @@
-category,weight
-Transport,0.9
-Food,0.5
-Shopping,0.8
+category,baseline_footprint
+Transport,5.0
+Food,2.0
+Shopping,3.0

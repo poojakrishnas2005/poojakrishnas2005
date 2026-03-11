@@ -1,3 +1,17 @@
+# Python bytecode
 __pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+env/
+
+# Database (Don't push your local data)
+backend/eco_wallet.db
+
+# Uploaded proofs
+backend/static/uploads/*
+!backend/static/uploads/.gitkeep
+
+# Environment secrets
 .env
-eco_wallet.db
