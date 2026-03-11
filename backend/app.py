@@ -301,82 +301,138 @@ def upload_csv():
 
 def calculate_batch_impact_pandas(file_stream, user_id):
     # Read CSV using Pandas
-    df = pd.read_csv(file_stream)
+    try:
+        df = pd.read_csv(file_stream)
+    except Exception as e:
+        return {"error": f"Failed to read CSV: {str(e)}"}
     
-    # Normalize column names to lower case for easier matching
-    df.columns = [c.lower().replace(' ', '_') for c in df.columns]
+    # 1. Normalize Columns: Strip whitespace and lowercase
+    df.columns = df.columns.str.strip().str.lower()
     
-    if 'item_name' not in df.columns or 'amount' not in df.columns or 'category' not in df.columns:
-        raise ValueError("CSV must contain 'item_name', 'amount', and 'category' columns")
-
-    # Generate a hash for each row to identify duplicates
-    df['transaction_hash'] = df.apply(
-        lambda row: generate_tx_hash(row['item_name'], row['amount'], row['category'], user_id),
-        axis=1
-    )
-
-    # Find which transactions already exist in the database for this user
-    existing_hashes = {
-        res[0] for res in db.session.query(Expense.transaction_hash)
-        .filter(Expense.user_id == user_id)
-        .filter(Expense.transaction_hash.in_(df['transaction_hash'].tolist()))
-        .all()
+    # 2. Drop the ID column if it exists to prevent database conflicts
+    df = df.drop(columns=['id'], errors='ignore')
+    
+    # 3. Map Column Names (Flexible Mapping)
+    # Ensure it looks for 'merchant' -> 'item_name', 'date' -> 'created_at', etc.
+    column_mapping = {
+        'merchant': 'item_name',
+        'date': 'created_at',
+        'date_time': 'created_at'
     }
+    df.rename(columns=column_mapping, inplace=True)
 
-    # Filter the DataFrame to get only the new transactions
-    new_df = df[~df['transaction_hash'].isin(existing_hashes)].copy()
+    # Basic Schema Validation: Allow for flexibility, but need Amount & Category
+    if 'amount' not in df.columns or 'category' not in df.columns:
+        if 'item_name' not in df.columns:
+             return {"error": "CSV must contain 'item_name' (or 'merchant'), 'amount', and 'category'"}
 
-    if new_df.empty:
-        return {
-            "total_impact": 0,
-            "eco_points": 0,
-            "message": "No new transactions to add. All entries were duplicates.",
-            "breakdown": {"labels": [], "values": []},
-            "spending_breakdown": {"labels": [], "values": []}
-        }
-
-    # --- Continue with calculations ONLY on the new_df ---
-    # Load Baselines from weights.csv
+    # Load Baselines
     weights_path = os.path.join(PROJECT_ROOT, "weights.csv")
     baselines = {}
     if os.path.exists(weights_path):
         try:
             baseline_df = pd.read_csv(weights_path)
             baselines = dict(zip(baseline_df['category'].str.lower(), baseline_df['baseline_footprint']))
-        except Exception as e:
-            print(f"Error reading weights.csv: {e}")
-    
+        except Exception:
+            pass
+
     user_factors = {"food": 0.2, "transport": 0.8, "shopping": 0.4}
     
-    new_df['category_lower'] = new_df['category'].astype(str).str.lower()
-    new_df['user_factor'] = new_df['category_lower'].map(user_factors).fillna(0.2)
-    new_df['baseline_factor'] = new_df['category_lower'].map(baselines).fillna(0.5)
+    # Fetch existing hashes to prevent duplicates
+    existing_hashes = {
+        res[0] for res in db.session.query(Expense.transaction_hash)
+        .filter(Expense.user_id == user_id)
+        .all()
+    }
 
-    new_df['footprint'] = new_df['amount'] * new_df['user_factor']
-
-    DIFFICULTY_SCALAR = 0.0001 # Adjusted to prevent point inflation
-    new_df['baseline_emission'] = new_df['amount'] * new_df['baseline_factor']
-    raw_carbon_saving = (new_df['baseline_emission'] - new_df['footprint']).clip(lower=0)
-    # New points formula: scale the saving and cap it at 10 points per transaction
-    new_df['points'] = (raw_carbon_saving * 0.0001).clip(upper=1).round(2)
-    # Save new transactions to the database
     new_expenses = []
-    for _, row in new_df.iterrows():
-        new_expenses.append(Expense(
-            item_name=row['item_name'], amount_in_inr=row['amount'], category=row['category'],
-            carbon_impact=row['footprint'], eco_points=row['points'],
-            transaction_hash=row['transaction_hash'], user_id=int(user_id)
-        ))
+    total_impact = 0.0
+    total_points = 0.0
+
+    # 4. Loop with Silent Error Handling
+    for index, row in df.iterrows():
+        try:
+            item_name = str(row.get('item_name', 'Unknown')).strip()
+            category = str(row.get('category', 'General')).strip()
+            
+            # Flexible amount parsing (remove currency symbols)
+            raw_amount = str(row.get('amount', 0)).replace('$', '').replace(',', '')
+            amount = float(raw_amount)
+            if amount <= 0: continue
+
+            # Generate Hash
+            tx_hash = generate_tx_hash(item_name, amount, category, user_id)
+            
+            if tx_hash in existing_hashes:
+                continue
+            
+            existing_hashes.add(tx_hash) # Mark as seen
+
+            # Calculation Logic
+            cat_lower = category.lower()
+            user_factor = user_factors.get(cat_lower, 0.2)
+            baseline_factor = baselines.get(cat_lower, 0.5)
+            
+            footprint = amount * user_factor
+            baseline_emission = amount * baseline_factor
+            
+            raw_saving = max(0, baseline_emission - footprint)
+            points = min(1.0, round(raw_saving * 0.0001, 2))
+            
+            # Optional: Handle date if present
+            created_at = datetime.utcnow()
+            if 'created_at' in row and pd.notna(row['created_at']):
+                try:
+                    created_at = pd.to_datetime(row['created_at']).to_pydatetime()
+                except:
+                    pass # Fallback to utcnow
+
+            # 5. User ID (Explicitly cast as requested)
+            new_expense = Expense(
+                item_name=item_name,
+                amount_in_inr=amount,
+                category=category,
+                carbon_impact=footprint,
+                eco_points=points,
+                transaction_hash=tx_hash,
+                user_id=int(user_id),
+                created_at=created_at
+            )
+            
+            new_expenses.append(new_expense)
+            total_impact += footprint
+            total_points += points
+
+        except Exception as e:
+            # Silent error handling: skip bad rows without crashing
+            print(f"Skipping row {index}: {e}")
+            continue
+
+    if not new_expenses:
+        return {
+            "total_impact": 0,
+            "eco_points": 0,
+            "message": "No new valid transactions found.",
+            "breakdown": {"labels": [], "values": []},
+            "spending_breakdown": {"labels": [], "values": []}
+        }
+
+    # Bulk Save
     db.session.bulk_save_objects(new_expenses)
     db.session.commit()
 
-    total_impact = float(new_df['footprint'].sum())
-    total_points = float(new_df['points'].sum())
-    breakdown = new_df.groupby('category')['footprint'].sum()
-    spending = new_df.groupby('category')['amount'].sum()
+    # Prepare Response Data
+    added_df = pd.DataFrame([{
+        'category': e.category,
+        'footprint': e.carbon_impact,
+        'amount': e.amount_in_inr
+    } for e in new_expenses])
+
+    breakdown = added_df.groupby('category')['footprint'].sum()
+    spending = added_df.groupby('category')['amount'].sum()
     
     return {
-        "total_impact": total_impact,
+        "total_impact": round(total_impact, 2),
         "eco_points": round(total_points, 2),
         "breakdown": {
             "labels": breakdown.index.tolist(),
