@@ -22,7 +22,7 @@ class Expense(db.Model):
     transaction_hash = db.Column(db.String(64), unique=True, nullable=False)
     
     carbon_impact = db.Column(db.Float, default=0.0)
-    eco_points = db.Column(db.Integer, default=0)
+    eco_points = db.Column(db.Float, default=0.0)
     proof_path = db.Column(db.String(255), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

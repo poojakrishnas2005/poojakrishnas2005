@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Eco Wallet</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #121212;
+            color: #e0e0e0;
+            padding: 2em;
+            padding-top: 90px;
+        }
+        h1, h2 { color: #ffffff; }
+
+        /* Glassmorphism Nav Bar */
+        .top-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px 5%;
+            background: rgba(30, 30, 30, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            box-sizing: border-box;
+        }
+        .nav-logo {
+            font-size: 1.5rem;
+            color: #fff;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .nav-links a {
+            color: #e0e0e0;
+            text-decoration: none;
+            margin-left: 25px;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        .nav-links a:hover {
+            color: #2ecc71;
+        }
+
+        .summary { display: flex; flex-wrap: wrap; gap: 2em; margin-bottom: 2em; }
+        .card {
+            flex: 1;
+            min-width: 200px;
+            background: #1e1e1e;
+            padding: 2em;
+            border-radius: 12px;
+            border: 1px solid #2a2a2a;
+            transition: box-shadow 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 0 15px rgba(46, 204, 113, 0.2);
+        }
+        .card-header { text-align: center; }
+        .card-header h2 {
+            margin: 0;
+            font-size: 0.9em;
+            color: #a0a0a0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .card-header p {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 0.2em 0 0;
+            background: linear-gradient(45deg, #2ecc71, #27ae60);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-fill-color: transparent;
+            text-shadow: 0 0 15px rgba(46, 204, 113, 0.2);
+        }
+        
+        /* Modern Table inside Card */
+        .table-container {
+            background: #1e1e1e;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #2a2a2a;
+            transition: box-shadow 0.3s ease;
+        }
+        .table-container:hover {
+            box-shadow: 0 0 15px rgba(46, 204, 113, 0.2);
+        }
+        .table-container h2 { border-bottom: 1px solid #333; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 1em; text-align: left; border-bottom: none; }
+        th { color: #a0a0a0; font-weight: 600; text-transform: uppercase; font-size: 0.8em; border-bottom: 1px solid #333; }
+        tbody tr:nth-child(even) { background-color: #242424; }
+        tbody tr:hover { background-color: #2c3e50; }
+        
+        .back-link { display: inline-block; margin-top: 2em; padding: 0.8em 1.5em; background-color: #2c3e50; color: white; text-decoration: none; border-radius: 8px; font-weight: 600; transition: background-color 0.3s ease; }
+        .back-link:hover { background-color: #34495e; }
+
+        /* Eco Badge */
+        .badge-eco { background-color: rgba(46, 204, 113, 0.15); color: #2ecc71; padding: 5px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 700; border: 1px solid rgba(46, 204, 113, 0.4); margin-left: 8px;}
+
+        /* Progress Bar */
+        .progress-container { width: 100%; background-color: #333; border-radius: 10px; margin-top: 15px; height: 8px; overflow: hidden; }
+        .progress-bar { height: 100%; background-color: #2ecc71; width: 0%; transition: width 1s ease-in-out; }
+        .level-text { font-size: 0.85em; color: #95a5a6; margin-top: 5px; text-align: center; display: block; }
+    </style>
+</head>
+<body>
+    <nav class="top-nav">
+        <a href="/" class="nav-logo">🌱 Eco-Wallet</a>
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/api/logout">Logout</a>
+        </div>
+    </nav>
+    <h1>Your Dashboard</h1>
+
+    <div class="summary">
+        <div class="card card-header">
+            <h2>Total Eco Points</h2>
+            <p id="total-score">Loading...</p>
+            <div class="progress-container">
+                <div class="progress-bar" id="level-bar"></div>
+            </div>
+            <span class="level-text">Progress to Green Level 1</span>
+        </div>
+        <div class="card card-header">
+            <h2>Sustainable Actions</h2>
+            <p id="trans-count">Loading...</p>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <h2 style="margin-top:0; border-bottom: 2px solid #f0f2f5; padding-bottom: 15px;">Recent Transactions</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Item/Merchant</th>
+                    <th>Category</th>
+                    <th>Amount (INR)</th>
+                    <th>Carbon Impact</th>
+                    <th>Eco Points</th>
+                </tr>
+            </thead>
+            <tbody id="transactions-body">
+                <!-- Transactions will be loaded here via JS -->
+            </tbody>
+        </table>
+    </div>
+    <a href="/" class="back-link">← Back to Home</a>
+
+    <script>
+        // Fetch User Stats
+        fetch('/api/user-stats')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('total-score').innerText = data.total_points;
+                document.getElementById('trans-count').innerText = data.total_transactions;
+                
+                // Calculate Level Progress (Goal: 100 points per level)
+                const points = parseFloat(data.total_points);
+                const percentage = Math.min((points / 100) * 100, 100);
+                document.getElementById('level-bar').style.width = percentage + '%';
+            });
+
+        // Fetch Transactions for the table
+        fetch('/api/transactions')
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.getElementById('transactions-body');
+                tbody.innerHTML = ''; // Clear loading
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2em; color:#95a5a6;">No transactions yet.</td></tr>';
+                    return;
+                }
+                data.forEach(tx => {
+                    // Format date to YYYY-MM-DD
+                    const dateStr = new Date(tx.created_at).toISOString().split('T')[0];
+                    
+                    // Badge Logic
+                    let badge = '';
+                    if (tx.eco_points > 0) {
+                        badge = '<span class="badge-eco">Eco-Friendly</span>';
+                    }
+
+                    const row = `
+                        <tr>
+                            <td>${dateStr}</td>
+                            <td>${tx.item_name}</td>
+                            <td>${tx.category}</td>
+                            <td>${parseFloat(tx.amount_in_inr).toFixed(2)}</td>
+                            <td>${parseFloat(tx.carbon_impact).toFixed(2)}</td>
+                            <td>${tx.eco_points} ${badge}</td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            });
+    </script>
+</body>
+</html>

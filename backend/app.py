@@ -1,8 +1,8 @@
-from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for
+from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for, render_template
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from models import db, Expense, User
-from eco_engine import calculate_eco_score
+from eco_engine import calculate_eco_score, calculate_impact
 from collections import defaultdict
 from datetime import datetime
 import pandas as pd
@@ -53,6 +53,27 @@ def index():
     if 'user_id' in session:
         return send_from_directory(frontend_path, "index.html")
     return redirect(url_for('login_page'))
+
+@app.route("/dashboard")
+def dashboard():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+
+    user_id = session['user_id']
+    
+    # Query for all expenses for the user, ordered by most recent
+    expenses = Expense.query.filter_by(user_id=user_id).order_by(Expense.created_at.desc()).all()
+    
+    # Sum up eco_points
+    total_points = sum(e.eco_points for e in expenses)
+    
+    # Count total number of 'Sustainable Actions' (total transactions)
+    total_transactions = len(expenses)
+    
+    return render_template("dashboard.html", 
+                           expenses=expenses, 
+                           total_points=round(total_points, 2), 
+                           total_transactions=total_transactions)
 
 @app.route("/<path:filename>")
 def serve_static(filename):
@@ -230,7 +251,10 @@ def transactions():
             existing_expense = Expense.query.filter_by(transaction_hash=tx_hash).first()
             if existing_expense:
                 return jsonify({"error": "Duplicate transaction detected"}), 409
-
+            
+            # Calculate impact using engine (logic update)
+            calc_impact, calc_points = calculate_impact(item_name, amount, category)
+            
             # Handle file upload - proof is REQUIRED
             proof_path = None
             if 'proof' in request.files:
@@ -249,8 +273,8 @@ def transactions():
                 item_name=item_name,
                 amount_in_inr=amount,
                 category=category,
-                carbon_impact=float(request.form.get('carbon_impact', 0.0)),
-                eco_points=int(request.form.get('eco_points', 0)),
+                carbon_impact=calc_impact,
+                eco_points=calc_points,
                 proof_path=proof_path,
                 user_id=user_id,
                 transaction_hash=tx_hash
@@ -297,6 +321,25 @@ def upload_csv():
         print(f'CRITICAL UPLOAD ERROR: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
+@app.route('/overall-wallet')
+def overall_wallet():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+    return send_from_directory(frontend_path, 'dashboard.html')
+
+@app.route('/api/user-stats')
+def user_stats():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    user_id = session['user_id']
+    expenses = Expense.query.filter_by(user_id=user_id).all()
+    
+    total_points = sum(e.eco_points for e in expenses)
+    total_count = len(expenses)
+    
+    return jsonify({"total_points": round(total_points, 2), "total_transactions": total_count})
+
 def calculate_batch_impact_pandas(file_stream, user_id):
     # Read CSV using Pandas
     try:
@@ -333,8 +376,6 @@ def calculate_batch_impact_pandas(file_stream, user_id):
             baselines = dict(zip(baseline_df['category'].str.lower(), baseline_df['baseline_footprint']))
         except Exception:
             pass
-
-    user_factors = {"food": 0.2, "transport": 0.8, "shopping": 0.4}
     
     # Fetch existing hashes to prevent duplicates
     existing_hashes = {
@@ -366,16 +407,8 @@ def calculate_batch_impact_pandas(file_stream, user_id):
             
             existing_hashes.add(tx_hash) # Mark as seen
 
-            # Calculation Logic
-            cat_lower = category.lower()
-            user_factor = user_factors.get(cat_lower, 0.2)
-            baseline_factor = baselines.get(cat_lower, 0.5)
-            
-            footprint = amount * user_factor
-            baseline_emission = amount * baseline_factor
-            
-            raw_saving = max(0, baseline_emission - footprint)
-            points = min(1.0, round(raw_saving * 0.0001, 2))
+            # Use Centralized Calculation Logic (Passing baselines for speed)
+            footprint, points = calculate_impact(item_name, amount, category, baselines)
             
             # Optional: Handle date if present
             created_at = datetime.utcnow()
