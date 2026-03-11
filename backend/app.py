@@ -14,7 +14,6 @@ import hashlib
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 frontend_path = os.path.join(PROJECT_ROOT, "frontend")
-db_path = os.path.join(PROJECT_ROOT, "backend", "eco_wallet.db")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -24,7 +23,7 @@ app = Flask(__name__, static_folder=frontend_path, static_url_path="")
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 app.secret_key = os.environ.get('SECRET_KEY', 'enterprise_eco_secret_key')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASE_DIR, 'eco_wallet.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Initialize database with app
 db.init_app(app)
@@ -295,9 +294,8 @@ def upload_csv():
         impact_data = calculate_batch_impact_pandas(file, session['user_id'])
         return jsonify(impact_data)
     except Exception as e:
-        print(f"Error in upload_csv: {e}")
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        print(f'CRITICAL UPLOAD ERROR: {str(e)}')
+        return jsonify({'error': str(e)}), 500
 
 def calculate_batch_impact_pandas(file_stream, user_id):
     # Read CSV using Pandas
